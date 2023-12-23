@@ -101,7 +101,6 @@ class Drone {
     }
 
     public think(creatures: Creature[]): string {
-        //if the drone has 3 creatures in its memory, save them
         if (this.creatureScanMemory.length >= 3) {
             return this.saveCreatures(creatures);
         }
@@ -110,14 +109,10 @@ class Drone {
     }
 
     private saveCreatures(creatures: Creature[]): string {
-        // if i command to save the drone needs to go up to 500u
-        // only if it reaches 500u i need to iterate over the creatures and adjust the saved by me flag
-        // if the drone is not at the surface, i need to move it up
         if (this.posY > 500) {
             return `MOVE ${this.posX} 500 0`;
         }
 
-        // if the drone is within 500u of the surface, i need to save the creatures
         this.creatureScanMemory.forEach((creatureId: number) => {
             const creature = creatures.find((c: Creature) => c.id === creatureId);
             if (creature) {
@@ -347,7 +342,6 @@ class GameRunner {
      * This method is called for each turn
      */
     public run(): void {
-        // handle all input
         this.handleScoreInput();
         this.handleSavedScansInput();
         this.handleSavedScansInput(true);
@@ -357,7 +351,6 @@ class GameRunner {
         this.handleVisibleCreaturesInput();
         this.handleRadarBlipsInput();
 
-        // decide what to do
         // TODO: think if we can do something with this data
         this.game.turnsLeft--;
 
@@ -366,7 +359,6 @@ class GameRunner {
             this.outputBuffer.addLine(move);
         });
 
-        // flush output
         this.outputBuffer.flush();
     }
 }
