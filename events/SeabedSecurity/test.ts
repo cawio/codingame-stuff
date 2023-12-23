@@ -100,17 +100,46 @@ class Drone {
         return this.DRONE_NAME;
     }
 
-    public moveToClosestUnscannedCreature(creatures: Creature[]) {
-        if (creatures.length <= 0) {
+    public think(creatures: Creature[]): string {
+        //if the drone has 3 creatures in its memory, save them
+        if (this.creatureScanMemory.length >= 3) {
+            return this.saveCreatures(creatures);
+        }
+
+        return this.moveToClosestUnscannedCreature(creatures);
+    }
+
+    private saveCreatures(creatures: Creature[]): string {
+        // if i command to save the drone needs to go up to 500u
+        // only if it reaches 500u i need to iterate over the creatures and adjust the saved by me flag
+        // if the drone is not at the surface, i need to move it up
+        if (this.posY > 500) {
+            return `MOVE ${this.posX} 500 0`;
+        }
+
+        // if the drone is within 500u of the surface, i need to save the creatures
+        this.creatureScanMemory.forEach((creatureId: number) => {
+            const creature = creatures.find((c: Creature) => c.id === creatureId);
+            if (creature) {
+                creature.savedByMe = true;
+            }
+        });
+
+        this.creatureScanMemory = [];
+
+        return `WAIT 1`;
+    }
+
+    private moveToClosestUnscannedCreature(creatures: Creature[]): string {
+        const unscannedCreatures = creatures.filter((c: Creature) => !c.scanned && c.isVisible);
+
+        if (unscannedCreatures.length <= 0) {
             return `WAIT ${this.battery > 15 ? '1' : '0'}`
         }
 
-        let closestCreature = creatures[0];
-
-
+        let closestCreature = unscannedCreatures[0];
         let minDistance = this.distance(this.posX, this.posY, closestCreature.posX!, closestCreature.posY!);
-
-        creatures.forEach((c: Creature) => {
+        unscannedCreatures.forEach((c: Creature) => {
             const dist = this.distance(this.posX, this.posY, c.posX!, c.posY!);
             if (dist < minDistance) {
                 minDistance = dist;
@@ -151,6 +180,16 @@ enum CreatureColor {
     Green = 2,
     Blue = 3,
 }
+
+/**
+ * Represents the state of a drone.
+ */
+enum DroneState {
+    Unknown = -1,
+    Moving = 0,
+    Scanning = 1,
+    Saving = 2,
+}
 //#endregion
 
 //#region Utils
@@ -181,10 +220,10 @@ class GameRunner {
     }
 
     private handleSavedScansInput(foe: boolean = false): void {
-        const scanCount: number = parseInt(readline());
+        const scanCount = parseInt(readline());
         for (let i = 0; i < scanCount; i++) {
-            const creatureId: number = parseInt(readline());
-            let creature: Creature | undefined = this.findCreatureById(creatureId);
+            const creatureId = parseInt(readline());
+            let creature = this.findCreatureById(creatureId);
 
             if (!creature) {
                 creature = this.createCreatureWithId(creatureId);
@@ -200,11 +239,11 @@ class GameRunner {
     }
 
     private handleDronesInput(foe: boolean = false): void {
-        const droneCount: number = parseInt(readline());
+        const droneCount = parseInt(readline());
         for (let i = 0; i < droneCount; i++) {
-            var inputs: string[] = readline().split(' ');
-            const droneId: number = parseInt(inputs[0]);
-            let drone: Drone | undefined = foe
+            var inputs = readline().split(' ');
+            const droneId = parseInt(inputs[0]);
+            let drone = foe
                 ? this.game.foeDrones.find(d => d.id === droneId)
                 : this.game.myDrones.find(d => d.id === droneId);
 
@@ -225,23 +264,30 @@ class GameRunner {
     }
 
     private handleDronesScanInput(): void {
-        const scanCount: number = parseInt(readline());
+        const scanCount = parseInt(readline());
         for (let i = 0; i < scanCount; i++) {
-            var inputs: string[] = readline().split(' ');
-            const creatureId: number = parseInt(inputs[0]);
+            var inputs = readline().split(' ');
+            const creatureId = parseInt(inputs[0]);
             const droneId = parseInt(inputs[1]);
             const drone = this.game.myDrones.find(d => d.id === droneId);
+            const creature = this.findCreatureById(creatureId);
+            if (creature) {
+                creature.scanned = true;
+                creature.scannedBy = droneId;
+                if (drone) {
             // TODO: somehow this memory needs to be cleared if the drone is within 500u of the surface. For now its whatever since we don't use it
-            drone?.creatureScanMemory.push(creatureId);
+                    drone.creatureScanMemory.push(creatureId);
+                }
+            }
         }
     }
 
     private handleVisibleCreaturesInput(): void {
-        const creatureCount: number = parseInt(readline());
+        const creatureCount = parseInt(readline());
         const visibleCreatureIds: number[] = [];
         for (let i = 0; i < creatureCount; i++) {
-            var inputs: string[] = readline().split(' ');
-            const creatureId: number = parseInt(inputs[0]);
+            var inputs = readline().split(' ');
+            const creatureId = parseInt(inputs[0]);
             visibleCreatureIds.push(creatureId);
             let creature = this.findCreatureById(creatureId);
 
@@ -273,12 +319,12 @@ class GameRunner {
 
     private handleRadarBlipsInput(): void {
         // TODO: implement
-        const radarBlipCount: number = parseInt(readline());
+        const radarBlipCount = parseInt(readline());
         for (let i = 0; i < radarBlipCount; i++) {
-            var inputs: string[] = readline().split(' ');
-            const droneId: number = parseInt(inputs[0]);
-            const creatureId: number = parseInt(inputs[1]);
-            const radar: string = inputs[2];
+            var inputs = readline().split(' ');
+            const droneId = parseInt(inputs[0]);
+            const creatureId = parseInt(inputs[1]);
+            const radar = inputs[2];
         }
     }
 
@@ -286,9 +332,9 @@ class GameRunner {
      * This method is called once, at the beginning of the game
      */
     public handleInitialInput(): void {
-        const creatureCount: number = parseInt(readline());
+        const creatureCount = parseInt(readline());
         for (let i = 0; i < creatureCount; i++) {
-            var inputs: string[] = readline().split(' ');
+            var inputs = readline().split(' ');
             const creatureId = parseInt(inputs[0]);
             const creature = this.createCreatureWithId(creatureId);
             creature.color = parseInt(inputs[1]);
@@ -315,9 +361,8 @@ class GameRunner {
         // TODO: think if we can do something with this data
         this.game.turnsLeft--;
 
-        const unscannedVisibleCreatures = this.game.creatures.filter((c) => !c.scanned && c.isVisible);
         this.game.myDrones.forEach((drone: Drone): void => {
-            const move = drone.moveToClosestUnscannedCreature(unscannedVisibleCreatures);
+            const move = drone.think(this.game.creatures);
             this.outputBuffer.addLine(move);
         });
 
