@@ -114,11 +114,7 @@ class Drone {
         }
 
         // if i don't want to save i want to move to a creature that is not saved
-        const creatureToMoveTo = this.findCreatureToMoveTo(creatures);
-
-
-
-        return 'WAIT 0';
+        return this.findCreatureToMoveTo(creatures);
     }
 
     public findCreatureToMoveTo(creatures: Map<number, Creature>): string {
