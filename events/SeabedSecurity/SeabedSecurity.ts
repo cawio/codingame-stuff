@@ -14,12 +14,12 @@ class GameData {
     private readonly MAX_TURNS: number = 200;
     private readonly FIRST_TURN_RESPONSE_TIME: number = 1000;
     private readonly TURN_RESPONSE_TIME: number = 50;
-    public turnsLeft: number = 0;
-    public creatures: Creature[] = [];
+    public foeDrones: Map<number, Drone> = new Map();
+    public myDrones: Map<number, Drone> = new Map();
+    public creatures: Map<number, Creature> = new Map();
+    public turnsLeft: number = this.MAX_TURNS;
     public myScore: number = 0;
     public foeScore: number = 0;
-    public myDrones: Drone[] = [];
-    public foeDrones: Drone[] = [];
 }
 
 /**
@@ -39,9 +39,7 @@ class Creature {
     public speedX: number | undefined;
     public speedY: number | undefined;
     public scanned: boolean = false;
-    public scannedBy: number | undefined;
-    public savedByMe: boolean = false;
-    public savedByFoe: boolean = false;
+    public saved: boolean = false;
 
     constructor(id: number) {
         this.id = id;
@@ -69,20 +67,22 @@ class Creature {
  * If the drone is near the surface (y ≤ 500u), the scans will be automatically saved, and points will be awarded.
  */
 class Drone {
+    private static readonly cuteAdjectives = ["Fluffy", "Sparkly", "Cheery", "Bubbly", "Cozy", "Cuddly"];
+    private static readonly cuteNouns = ["Bunny", "Kitten", "Panda", "Butterfly", "Daisy", "Peach"];
     private readonly MAX_TRAVEL_DISTANCE_PER_TURN: number = 600;
     private readonly MOTOR_OFF_SINKRATE: number = 300;
     private readonly LIGHT_OFF_SCANNER_RANGE: number = 800;
     private readonly LIGHT_ON_SCANNER_RANGE: number = 2000;
     private readonly BATTERY_MAX_CAPACITY: number = 30;
-    private static readonly cuteAdjectives = ["Fluffy", "Sparkly", "Cheery", "Bubbly", "Cozy", "Cuddly"];
-    private static readonly cuteNouns = ["Bunny", "Kitten", "Panda", "Butterfly", "Daisy", "Peach"];
+    private readonly SCAN_SAVE_RANGE: number = 500;
+    private readonly DRONE_NAME: string;
     public id: number = 0;
     public posX: number = 0;
     public posY: number = 0;
     public emergency: number = 0;
     public battery: number = 0;
-    public creatureScanMemory: number[] = [];
-    private readonly DRONE_NAME: string;
+    public memory: Set<number> = new Set();
+    public radarBlips: Map<number, RadarBlip> = new Map();
 
     constructor(id: number) {
         this.id = id;
@@ -96,61 +96,89 @@ class Drone {
         return `${randomAdjective}${randomNoun} (Id:${this.id})`;
     }
 
+    public getRadarBlipForCreature(creatureId: number): RadarBlip {
+        return this.radarBlips.get(creatureId) ?? {
+            droneId: this.id,
+            creatureId,
+            direction: RadarDirection.Unknown,
+        };
+    }
+
     get name(): string {
         return this.DRONE_NAME;
     }
 
-    public think(creatures: Creature[]): string {
-        if (this.creatureScanMemory.length >= 3) {
+    public think(creatures: Map<number, Creature>): string {
+        if (this.memory.size >= 3) {
             return this.saveCreatures(creatures);
         }
 
-        return this.moveToClosestUnscannedCreature(creatures);
+        // if i don't want to save i want to move to a creature that is not saved
+        const creatureToMoveTo = this.findCreatureToMoveTo(creatures);
+
+
+
+        return 'WAIT 0';
     }
 
-    private saveCreatures(creatures: Creature[]): string {
-        if (this.posY > 500) {
-            return `MOVE ${this.posX} 500 0`;
+    public findCreatureToMoveTo(creatures: Map<number, Creature>): string {
+        const visibleAndNotScannedCreatures = [...creatures.values()].filter((creature: Creature) => creature.isVisible && !creature.scanned);
+
+        if (visibleAndNotScannedCreatures.length < 1) {
+            // move to this motherfucker
         }
 
-        this.creatureScanMemory.forEach((creatureId: number) => {
-            const creature = creatures.find((c: Creature) => c.id === creatureId);
+        // otherwise we use radar blips to move
+        const unscannedCreature = [...creatures.values()].find((creature: Creature) => !creature.saved);
+        if (unscannedCreature) {
+            return this.moveToRadarBlip(unscannedCreature.id)
+        }
+
+        return 'WAIT 0';
+    }
+
+    private saveCreatures(creatures: Map<number, Creature>): string {
+        if (this.posY > this.SCAN_SAVE_RANGE) {
+            return `MOVE ${this.posX} ${this.SCAN_SAVE_RANGE} 0`;
+        }
+
+        this.memory.forEach((creatureId: number) => {
+            const creature = creatures.get(creatureId);
             if (creature) {
-                creature.savedByMe = true;
+                creature.saved = true;
             }
         });
 
-        this.creatureScanMemory = [];
+        this.memory.clear();
 
         return `WAIT 1`;
     }
 
-    private moveToClosestUnscannedCreature(creatures: Creature[]): string {
-        const unscannedCreatures = creatures.filter((c: Creature) => !c.scanned && c.isVisible);
-
-        if (unscannedCreatures.length <= 0) {
-            return `WAIT ${this.battery > 15 ? '1' : '0'}`
-        }
-
-        let closestCreature = unscannedCreatures[0];
-        let minDistance = this.distance(this.posX, this.posY, closestCreature.posX!, closestCreature.posY!);
-        unscannedCreatures.forEach((c: Creature) => {
-            const dist = this.distance(this.posX, this.posY, c.posX!, c.posY!);
-            if (dist < minDistance) {
-                minDistance = dist;
-                closestCreature = c;
-            }
-        });
-
-        const creatureInRange = minDistance < this.LIGHT_ON_SCANNER_RANGE;
-
-        return `MOVE ${closestCreature.posX} ${closestCreature.posY} ${creatureInRange ? '1' : '0'}`
-
-    }
-
-    public distance(x1: number, y1: number, x2: number, y2: number): number {
+    private distance(x1: number, y1: number, x2: number, y2: number): number {
         return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     }
+
+    private moveToRadarBlip(creatureId: number): string {
+        const blip = this.getRadarBlipForCreature(creatureId);
+        switch (blip.direction) {
+            case RadarDirection.TopLeft:
+                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
+            case RadarDirection.TopRight:
+                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
+            case RadarDirection.BottomLeft:
+                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
+            case RadarDirection.BottomRight:
+                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
+            default:
+                return 'WAIT 0';
+        }
+    }
+}
+
+interface RadarBlip {
+    droneId: number;
+    creatureId: number;
+    direction: RadarDirection;
 }
 //#endregion
 
@@ -185,6 +213,14 @@ enum DroneState {
     Scanning = 1,
     Saving = 2,
 }
+
+enum RadarDirection {
+    Unknown = "We're screwed",
+    TopLeft = "TL",
+    TopRight = "TR",
+    BottomLeft = "BL",
+    BottomRight = "BR",
+}
 //#endregion
 
 //#region Utils
@@ -208,6 +244,7 @@ class OutputBuffer {
 class GameRunner {
     public game = new GameData();
     public outputBuffer = new OutputBuffer();
+    public turnStartTime: number = 0;
 
     private handleScoreInput(): void {
         this.game.myScore = parseInt(readline());
@@ -220,16 +257,12 @@ class GameRunner {
             const creatureId = parseInt(readline());
             let creature = this.findCreatureById(creatureId);
 
-            if (!creature) {
-                creature = this.createCreatureWithId(creatureId);
-                this.game.creatures.push(creature);
+            if (foe) {
+                // TODO: maybe we could use this data somehow
+                continue;
             }
 
-            if (foe) {
-                creature.savedByFoe = true;
-            } else {
-                creature.savedByMe = true;
-            }
+            creature.saved = true;
         }
     }
 
@@ -239,16 +272,16 @@ class GameRunner {
             var inputs = readline().split(' ');
             const droneId = parseInt(inputs[0]);
             let drone = foe
-                ? this.game.foeDrones.find(d => d.id === droneId)
-                : this.game.myDrones.find(d => d.id === droneId);
+                ? this.findDroneById(droneId, foe)
+                : this.findDroneById(droneId);
 
-            if (!drone) {
-                drone = new Drone(droneId);
-                if (foe) {
-                    this.game.foeDrones.push(drone);
-                } else {
-                    this.game.myDrones.push(drone);
-                }
+
+            if (foe && !this.game.foeDrones.has(drone.id)) {
+                this.game.foeDrones.set(drone.id, drone);
+            }
+
+            if (!foe && !this.game.myDrones.has(drone.id)) {
+                this.game.myDrones.set(drone.id, drone);
             }
 
             drone.posX = parseInt(inputs[1]);
@@ -262,18 +295,14 @@ class GameRunner {
         const scanCount = parseInt(readline());
         for (let i = 0; i < scanCount; i++) {
             var inputs = readline().split(' ');
-            const creatureId = parseInt(inputs[0]);
-            const droneId = parseInt(inputs[1]);
-            const drone = this.game.myDrones.find(d => d.id === droneId);
+
+            const creatureId = parseInt(inputs[1]);
             const creature = this.findCreatureById(creatureId);
-            if (creature) {
-                creature.scanned = true;
-                creature.scannedBy = droneId;
-                if (drone) {
-            // TODO: somehow this memory needs to be cleared if the drone is within 500u of the surface. For now its whatever since we don't use it
-                    drone.creatureScanMemory.push(creatureId);
-                }
-            }
+            creature.scanned = true;
+
+            const droneId = parseInt(inputs[0]);
+            const drone = this.findDroneById(droneId);
+            drone.memory.add(creatureId);
         }
     }
 
@@ -284,27 +313,31 @@ class GameRunner {
             var inputs = readline().split(' ');
             const creatureId = parseInt(inputs[0]);
             visibleCreatureIds.push(creatureId);
-            let creature = this.findCreatureById(creatureId);
-
-            if (!creature) {
-                creature = this.createCreatureWithId(creatureId);
-                this.game.creatures.push(creature);
-            }
+            const creature = this.findCreatureById(creatureId);
             creature.posX = parseInt(inputs[1]);
             creature.posY = parseInt(inputs[2]);
             creature.speedX = parseInt(inputs[3]);
             creature.speedY = parseInt(inputs[4]);
         }
 
-        this.game.creatures.forEach((c: Creature) => {
-            if (!visibleCreatureIds.includes(c.id)) {
-                c.clearPositionalData();
+        // TODO: i don't like this
+        this.game.creatures.forEach((creature: Creature, creatureId: number) => {
+            if (!visibleCreatureIds.includes(creatureId)) {
+                creature.clearPositionalData();
             }
         });
     }
 
-    private findCreatureById(id: number): Creature | undefined {
-        return this.game.creatures.find((c: Creature): boolean => c.id === id);
+    private findCreatureById(id: number): Creature {
+        return this.game.creatures.get(id) ?? new Creature(id);
+    }
+
+    private findDroneById(id: number, foe: boolean = false): Drone {
+        if (foe) {
+            return this.game.foeDrones.get(id) ?? new Drone(id);
+        }
+
+        return this.game.myDrones.get(id) ?? new Drone(id);
     }
 
     private createCreatureWithId(id: number): Creature {
@@ -313,13 +346,15 @@ class GameRunner {
     }
 
     private handleRadarBlipsInput(): void {
-        // TODO: implement
         const radarBlipCount = parseInt(readline());
         for (let i = 0; i < radarBlipCount; i++) {
             var inputs = readline().split(' ');
             const droneId = parseInt(inputs[0]);
             const creatureId = parseInt(inputs[1]);
             const radar = inputs[2];
+            const drone = this.findDroneById(droneId);
+            const blip = drone.getRadarBlipForCreature(creatureId);
+            blip.direction = radar as RadarDirection;
         }
     }
 
@@ -327,6 +362,7 @@ class GameRunner {
      * This method is called once, at the beginning of the game
      */
     public handleInitialInput(): void {
+        this.turnStartTime = Date.now();
         const creatureCount = parseInt(readline());
         for (let i = 0; i < creatureCount; i++) {
             var inputs = readline().split(' ');
@@ -334,7 +370,7 @@ class GameRunner {
             const creature = this.createCreatureWithId(creatureId);
             creature.color = parseInt(inputs[1]);
             creature.type = parseInt(inputs[2]);
-            this.game.creatures.push(creature);
+            this.game.creatures.set(creature.id, creature);
         }
     }
 
@@ -342,6 +378,7 @@ class GameRunner {
      * This method is called for each turn
      */
     public run(): void {
+        this.turnStartTime = Date.now();
         this.handleScoreInput();
         this.handleSavedScansInput();
         this.handleSavedScansInput(true);
@@ -360,6 +397,8 @@ class GameRunner {
         });
 
         this.outputBuffer.flush();
+
+        console.error(`Turn took ${Date.now() - this.turnStartTime}ms`);
     }
 }
 
