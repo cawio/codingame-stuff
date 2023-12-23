@@ -210,10 +210,12 @@ class GameRunner {
 
             if (!drone) {
                 drone = new Drone(droneId);
-                this.game.myDrones.push(drone);
+                if (foe) {
+                    this.game.foeDrones.push(drone);
+                } else {
+                    this.game.myDrones.push(drone);
+                }
             }
-
-            console.error(`Processing ${drone.name} (${foe ? 'foe' : 'my'})`)
 
             drone.posX = parseInt(inputs[1]);
             drone.posY = parseInt(inputs[2]);
@@ -229,7 +231,7 @@ class GameRunner {
             const creatureId: number = parseInt(inputs[0]);
             const droneId = parseInt(inputs[1]);
             const drone = this.game.myDrones.find(d => d.id === droneId);
-            // TODO: somehow this memory needs to be cleared if the drone is within 500u of the surface
+            // TODO: somehow this memory needs to be cleared if the drone is within 500u of the surface. For now its whatever since we don't use it
             drone?.creatureScanMemory.push(creatureId);
         }
     }
