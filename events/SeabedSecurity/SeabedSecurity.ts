@@ -29,8 +29,8 @@ class GameData {
  * If a fish comes within 600u of another, it will begin to swim in the opposite direction to the nearest fish.
  */
 class Creature {
-    private readonly MAX_TRAVEL_DISTANCE_PER_TURN: number = 200;
-    private readonly PERSONAL_SPACE: number = 600;
+    public readonly MAX_TRAVEL_DISTANCE_PER_TURN: number = 200;
+    public readonly PERSONAL_SPACE: number = 600;
     public id: number = 0;
     public color: CreatureColor = CreatureColor.Unknown;
     public type: CreatureType = CreatureType.Unknown;
@@ -52,7 +52,7 @@ class Creature {
         this.speedY = undefined;
     }
 
-    public get isVisible(): boolean {
+    public get visible(): boolean {
         return this.posX !== undefined && this.posY !== undefined;
     }
 }
@@ -118,19 +118,40 @@ class Drone {
     }
 
     public findCreatureToMoveTo(creatures: Map<number, Creature>): string {
-        const visibleAndNotScannedCreatures = [...creatures.values()].filter((creature: Creature) => creature.isVisible && !creature.scanned);
-
+        const visibleAndNotScannedCreatures = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.scanned);
         if (visibleAndNotScannedCreatures.length < 1) {
-            // move to this motherfucker
+            return this.interceptCreature(creatures);
         }
 
-        // otherwise we use radar blips to move
-        const unscannedCreature = [...creatures.values()].find((creature: Creature) => !creature.saved);
+        // otherwise we use the radar blip of the first unscanned creature
+        const unscannedCreature = [...creatures.values()].find((creature: Creature) => !creature.scanned);
         if (unscannedCreature) {
             return this.moveToRadarBlip(unscannedCreature.id)
         }
 
         return 'WAIT 0';
+    }
+
+    private interceptCreature(creatures: Map<number, Creature>) {
+        const visibleAndNotSavedCreatures = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.saved);
+
+        if (visibleAndNotSavedCreatures.length < 1) {
+            return 'WAIT 0';
+        }
+
+        const closestCreature = visibleAndNotSavedCreatures.reduce((prev: Creature, current: Creature) => {
+            if (prev === undefined) {
+                return current;
+            }
+
+            const prevDistance = this.distance(this.posX, this.posY, prev.posX!, prev.posY!);
+            const currentDistance = this.distance(this.posX, this.posY, current.posX!, current.posY!);
+
+            return prevDistance < currentDistance ? prev : current;
+        });
+
+        return `MOVE ${closestCreature.posX} ${closestCreature.posY} 0`;
+
     }
 
     private saveCreatures(creatures: Map<number, Creature>): string {
