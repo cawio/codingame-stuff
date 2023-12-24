@@ -97,11 +97,11 @@ class Drone {
     }
 
     public getRadarBlipForCreature(creatureId: number): RadarBlip {
-        return this.radarBlips.get(creatureId) ?? {
-            droneId: this.id,
-            creatureId,
-            direction: RadarDirection.Unknown,
-        };
+        if (!this.radarBlips.has(creatureId)) {
+            this.radarBlips.set(creatureId, { droneId: this.id, creatureId: creatureId, direction: 'TL' });
+        }
+
+        return this.radarBlips.get(creatureId)!;
     }
 
     get name(): string {
@@ -113,33 +113,26 @@ class Drone {
             return this.saveCreatures(creatures);
         }
 
-        // if i don't want to save i want to move to a creature that is not saved
         return this.findCreatureToMoveTo(creatures);
     }
 
     public findCreatureToMoveTo(creatures: Map<number, Creature>): string {
-        const visibleAndNotScannedCreatures = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.scanned);
-        if (visibleAndNotScannedCreatures.length < 1) {
-            return this.interceptCreature(creatures);
+        let lightCommand: string = this.determineLightStatus();
+        const visibleUnscannedCreatures = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.scanned);
+        if (visibleUnscannedCreatures.length > 0) {
+            return `${this.interceptCreature(visibleUnscannedCreatures)} ${lightCommand}`;
         }
 
-        // otherwise we use the radar blip of the first unscanned creature
         const unscannedCreature = [...creatures.values()].find((creature: Creature) => !creature.scanned);
         if (unscannedCreature) {
-            return this.moveToRadarBlip(unscannedCreature.id)
+            return `${this.moveToRadarBlip(unscannedCreature.id)} ${lightCommand}`;
         }
 
-        return 'WAIT 0';
+        return `WAIT ${lightCommand}`;
     }
 
-    private interceptCreature(creatures: Map<number, Creature>) {
-        const visibleAndNotSavedCreatures = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.saved);
-
-        if (visibleAndNotSavedCreatures.length < 1) {
-            return 'WAIT 0';
-        }
-
-        const closestCreature = visibleAndNotSavedCreatures.reduce((prev: Creature, current: Creature) => {
+    private interceptCreature(creatures: Creature[]): string {
+        const closestCreature = creatures.reduce((prev: Creature, current: Creature) => {
             if (prev === undefined) {
                 return current;
             }
@@ -150,13 +143,13 @@ class Drone {
             return prevDistance < currentDistance ? prev : current;
         });
 
-        return `MOVE ${closestCreature.posX} ${closestCreature.posY} 0`;
+        return `MOVE ${closestCreature.posX} ${closestCreature.posY}`;
 
     }
 
     private saveCreatures(creatures: Map<number, Creature>): string {
         if (this.posY > this.SCAN_SAVE_RANGE) {
-            return `MOVE ${this.posX} ${this.SCAN_SAVE_RANGE} 0`;
+            return `MOVE ${this.posX} ${this.SCAN_SAVE_RANGE}`;
         }
 
         this.memory.forEach((creatureId: number) => {
@@ -168,7 +161,7 @@ class Drone {
 
         this.memory.clear();
 
-        return `WAIT 1`;
+        return `WAIT`;
     }
 
     private distance(x1: number, y1: number, x2: number, y2: number): number {
@@ -177,25 +170,32 @@ class Drone {
 
     private moveToRadarBlip(creatureId: number): string {
         const blip = this.getRadarBlipForCreature(creatureId);
+        console.error(`blip.direction = ${blip.direction}`)
         switch (blip.direction) {
-            case RadarDirection.TopLeft:
-                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
-            case RadarDirection.TopRight:
-                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
-            case RadarDirection.BottomLeft:
-                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
-            case RadarDirection.BottomRight:
-                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN} 0`;
+            case 'TL':
+                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+            case 'TR':
+                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+            case 'BL':
+                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+            case 'BR':
+                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
             default:
-                return 'WAIT 0';
+                return 'WAIT';
         }
     }
+
+    private determineLightStatus(): string {
+        return this.battery > 5 ? '1' : '0';
+    }
 }
+
+type RadarIndication = 'TL' | 'TR' | 'BL' | 'BR';
 
 interface RadarBlip {
     droneId: number;
     creatureId: number;
-    direction: RadarDirection;
+    direction: RadarIndication;
 }
 //#endregion
 
@@ -229,14 +229,6 @@ enum DroneState {
     Moving = 0,
     Scanning = 1,
     Saving = 2,
-}
-
-enum RadarDirection {
-    Unknown = "We're screwed",
-    TopLeft = "TL",
-    TopRight = "TR",
-    BottomLeft = "BL",
-    BottomRight = "BR",
 }
 //#endregion
 
@@ -371,7 +363,7 @@ class GameRunner {
             const radar = inputs[2];
             const drone = this.findDroneById(droneId);
             const blip = drone.getRadarBlipForCreature(creatureId);
-            blip.direction = radar as RadarDirection;
+            blip.direction = radar as RadarIndication;
         }
     }
 
