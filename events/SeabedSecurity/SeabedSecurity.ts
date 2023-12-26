@@ -69,6 +69,8 @@ class Creature {
 class Drone {
     private static readonly cuteAdjectives = ["Fluffy", "Sparkly", "Cheery", "Bubbly", "Cozy", "Cuddly"];
     private static readonly cuteNouns = ["Bunny", "Kitten", "Panda", "Butterfly", "Daisy", "Peach"];
+    private readonly MOVE_COMMAND: string = 'MOVE';
+    private readonly WAIT_COMMAND: string = 'WAIT';
     private readonly MAX_TRAVEL_DISTANCE_PER_TURN: number = 600;
     private readonly MOTOR_OFF_SINKRATE: number = 300;
     private readonly LIGHT_OFF_SCANNER_RANGE: number = 800;
@@ -117,18 +119,21 @@ class Drone {
     }
 
     public findCreatureToMoveTo(creatures: Map<number, Creature>): string {
-        let lightCommand: string = this.determineLightStatus();
-        const visibleUnscannedCreatures = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.scanned);
-        if (visibleUnscannedCreatures.length > 0) {
-            return `${this.interceptCreature(visibleUnscannedCreatures)} ${lightCommand}`;
+        let targets = [...creatures.values()].filter((creature: Creature) => creature.visible && !creature.scanned);
+        if (targets.length > 0) {
+            return this.interceptCreature(targets);
         }
 
-        const unscannedCreature = [...creatures.values()].find((creature: Creature) => !creature.scanned);
-        if (unscannedCreature) {
-            return `${this.moveToRadarBlip(unscannedCreature.id)} ${lightCommand}`;
+        let target = [...creatures.values()].find((creature: Creature) => !creature.scanned);
+        if (target) {
+            return this.moveToRadarBlip(target.id);
         }
 
-        return `WAIT ${lightCommand}`;
+        return CommandBuilder.move(
+            this.posX,
+            this.SCAN_SAVE_RANGE,
+            this.determineLightStatus()
+        );
     }
 
     private interceptCreature(creatures: Creature[]): string {
@@ -143,13 +148,16 @@ class Drone {
             return prevDistance < currentDistance ? prev : current;
         });
 
-        return `MOVE ${closestCreature.posX} ${closestCreature.posY}`;
-
+        return CommandBuilder.move(
+            closestCreature.posX! + closestCreature.speedX! * 2,
+            closestCreature.posY! + closestCreature.speedY! * 2,
+            this.determineLightStatus()
+        );
     }
 
     private saveCreatures(creatures: Map<number, Creature>): string {
         if (this.posY > this.SCAN_SAVE_RANGE) {
-            return `MOVE ${this.posX} ${this.SCAN_SAVE_RANGE}`;
+            return CommandBuilder.move(this.posX, this.SCAN_SAVE_RANGE, this.determineLightStatus());
         }
 
         this.memory.forEach((creatureId: number) => {
@@ -161,7 +169,7 @@ class Drone {
 
         this.memory.clear();
 
-        return `WAIT`;
+        return CommandBuilder.wait(this.determineLightStatus());
     }
 
     private distance(x1: number, y1: number, x2: number, y2: number): number {
@@ -170,23 +178,38 @@ class Drone {
 
     private moveToRadarBlip(creatureId: number): string {
         const blip = this.getRadarBlipForCreature(creatureId);
-        console.error(`blip.direction = ${blip.direction}`)
         switch (blip.direction) {
             case 'TL':
-                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+                return CommandBuilder.move(
+                    this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.determineLightStatus()
+                );
             case 'TR':
-                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+                return CommandBuilder.move(
+                    this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.posY - this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.determineLightStatus()
+                );
             case 'BL':
-                return `MOVE ${this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+                return CommandBuilder.move(
+                    this.posX - this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.determineLightStatus()
+                );
             case 'BR':
-                return `MOVE ${this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN} ${this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN}`;
+                return CommandBuilder.move(
+                    this.posX + this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.posY + this.MAX_TRAVEL_DISTANCE_PER_TURN,
+                    this.determineLightStatus()
+                );
             default:
-                return 'WAIT';
+                return CommandBuilder.wait(this.determineLightStatus());
         }
     }
 
-    private determineLightStatus(): string {
-        return this.battery > 5 ? '1' : '0';
+    private determineLightStatus(): boolean {
+        return this.battery > 5;
     }
 }
 
@@ -246,6 +269,16 @@ class OutputBuffer {
     public flush(): void {
         console.log(this.buffer.join('\n'));
         this.buffer = [];
+    }
+}
+
+class CommandBuilder {
+    public static move(x: number, y: number, light: boolean = false): string {
+        return `MOVE ${x} ${y} ${light ? 1 : 0}`;
+    }
+
+    public static wait(light: boolean = false): string {
+        return `WAIT ${light ? 1 : 0}`;
     }
 }
 //#endregion
